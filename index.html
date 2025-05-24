@@ -1,0 +1,387 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>JBaRts Lite</title>
+<style>
+  html, body {
+    margin: 0; padding: 0; height: 100%; overflow: hidden;
+    background: linear-gradient(to right, #f9d423, #ff4e50);
+    user-select: none;
+    -webkit-user-select: none;
+    -webkit-touch-callout: none;
+    font-family: Arial, sans-serif;
+  }
+  body {
+    display: flex;
+    flex-direction: column;
+    height: 100vh;
+  }
+  header {
+    background: white;
+    padding: 15px 20px;
+    box-shadow: 0 3px 10px rgba(0,0,0,0.2);
+    color: #ff4e50;
+    font-weight: 700;
+    font-size: 1.8rem;
+    text-align: center;
+    user-select: text;
+  }
+  .toolbar {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+    background: white;
+    padding: 10px 20px;
+    border-radius: 0 0 12px 12px;
+    box-shadow: 0 4px 10px rgba(0,0,0,0.2);
+    align-items: center;
+    user-select: none;
+    z-index: 10;
+  }
+  .toolbar label, .toolbar button, .toolbar select, .toolbar input[type=color], .toolbar input[type=range] {
+    user-select: none;
+  }
+  input, select, button {
+    padding: 6px;
+    border-radius: 8px;
+    border: none;
+    outline: none;
+    font-size: 1rem;
+  }
+  button {
+    background: #ff4e50;
+    color: white;
+    font-weight: bold;
+    cursor: pointer;
+    transition: background 0.3s ease;
+  }
+  button:hover:not(:disabled) {
+    background: #e03e3e;
+  }
+  #drawCanvas {
+    flex-grow: 1;
+    background: white;
+    border-radius: 0 0 12px 12px;
+    box-shadow: 0 0 20px rgba(0,0,0,0.2);
+    touch-action: none;
+    cursor: crosshair;
+    display: block;
+    width: 100%;
+  }
+  footer {
+    padding: 8px 0;
+    color: white;
+    font-weight: bold;
+    font-size: 0.9rem;
+    text-align: center;
+    user-select: text;
+  }
+  /* Modal Styles */
+  #aboutModal {
+    display: none;
+    position: fixed;
+    top: 0; left: 0; right:0; bottom:0;
+    background: rgba(0,0,0,0.5);
+    z-index: 9999;
+    justify-content: center;
+    align-items: center;
+  }
+  #aboutModalContent {
+    background: white;
+    padding: 25px 30px;
+    border-radius: 12px;
+    max-width: 400px;
+    box-shadow: 0 6px 20px rgba(0,0,0,0.3);
+    color: #333;
+    font-size: 1rem;
+    line-height: 1.5;
+    position: relative;
+    user-select: text;
+  }
+  #aboutModalContent h2 {
+    margin-top: 0;
+    color: #ff4e50;
+  }
+  #closeAbout {
+    position: absolute;
+    top: 10px; right: 12px;
+    background: #ff4e50;
+    border: none;
+    color: white;
+    font-weight: bold;
+    border-radius: 50%;
+    width: 28px;
+    height: 28px;
+    cursor: pointer;
+    font-size: 1.1rem;
+    line-height: 1;
+  }
+  #closeAbout:hover {
+    background: #e03e3e;
+  }
+</style>
+</head>
+<body>
+
+<header>JBaRts Lite</header>
+
+<div class="toolbar">
+  <label>Color: <input type="color" id="colorPicker" value="#000000"></label>
+  <label>Size: <input type="range" id="brushSize" min="1" max="50" value="10"></label>
+  <label>Brush:
+    <select id="brushType">
+      <option value="normal">Normal</option>
+      <option value="spray">Spray</option>
+      <option value="pencil">Pencil</option>
+      <option value="texture">Texture</option>
+      <option value="eraser">Eraser</option>
+      <option value="vignette">Vignette</option>
+    </select>
+  </label>
+  <button id="clearBtn" title="Clear Canvas">🧹 Clear</button>
+  <button id="aboutBtn" title="About JBaRts Lite">ℹ️ About</button>
+</div>
+
+<canvas id="drawCanvas"></canvas>
+
+<footer>Made by Jayed Chowdhury</footer>
+
+<!-- About Modal -->
+<div id="aboutModal">
+  <div id="aboutModalContent" role="dialog" aria-modal="true" aria-labelledby="aboutTitle">
+    <button id="closeAbout" aria-label="Close About">&times;</button>
+    <h2 id="aboutTitle">About JBaRts Lite</h2>
+    <p>This is the Lite Version of <strong>JBaRts Pro</strong>, which is not yet released.</p>
+    <p>The full version is currently in development and will be significantly larger and more feature-rich than this Lite edition.</p>
+    <p><strong>JBaRts</strong> is created by <em>Jayed Chowdhury</em>, CEO of J∙B Company.</p>
+  </div>
+</div>
+
+<script>
+  const canvas = document.getElementById('drawCanvas');
+  const ctx = canvas.getContext('2d');
+
+  // Resize canvas to fill remaining viewport below header + toolbar
+  function resizeCanvas() {
+    const headerHeight = document.querySelector('header').offsetHeight;
+    const toolbarHeight = document.querySelector('.toolbar').offsetHeight;
+    canvas.width = window.innerWidth;
+    canvas.height = window.innerHeight - headerHeight - toolbarHeight;
+  }
+  window.addEventListener('resize', resizeCanvas);
+  resizeCanvas();
+
+  let painting = false;
+  let lastX = 0, lastY = 0;
+  let scale = 1;
+  let originX = 0;
+  let originY = 0;
+  let startDist = 0;
+  let lastScale = 1;
+
+  function getTouchDistance(touches) {
+    const dx = touches[0].clientX - touches[1].clientX;
+    const dy = touches[0].clientY - touches[1].clientY;
+    return Math.sqrt(dx * dx + dy * dy);
+  }
+
+  function getPos(e) {
+    const rect = canvas.getBoundingClientRect();
+    let clientX, clientY;
+    if (e.touches && e.touches.length > 0) {
+      clientX = e.touches[0].clientX;
+      clientY = e.touches[0].clientY;
+    } else {
+      clientX = e.clientX;
+      clientY = e.clientY;
+    }
+    return {
+      x: (clientX - rect.left - originX) / scale,
+      y: (clientY - rect.top - originY) / scale
+    };
+  }
+
+  function startDraw(e) {
+    if (e.touches?.length === 2) {
+      startDist = getTouchDistance(e.touches);
+      lastScale = scale;
+      return;
+    }
+    e.preventDefault();
+    painting = true;
+    const pos = getPos(e);
+    lastX = pos.x;
+    lastY = pos.y;
+    ctx.beginPath();
+    ctx.moveTo(lastX, lastY);
+  }
+
+  function endDraw() {
+    if (!painting) return;
+    painting = false;
+    ctx.closePath();
+  }
+
+  // Vignette tool - smooth/blend pixels by averaging neighbors
+  function blendPixels(x, y, size) {
+    const left = Math.max(0, Math.floor(x - size));
+    const top = Math.max(0, Math.floor(y - size));
+    const width = Math.min(canvas.width - left, size * 2);
+    const height = Math.min(canvas.height - top, size * 2);
+
+    if(width <=0 || height <=0) return;
+
+    const imgData = ctx.getImageData(left, top, width, height);
+    const data = imgData.data;
+    const widthData = imgData.width;
+    const heightData = imgData.height;
+
+    const copy = new Uint8ClampedArray(data);
+
+    for(let j=1; j<heightData-1; j++) {
+      for(let i=1; i<widthData-1; i++) {
+        const idx = (j * widthData + i) * 4;
+        let r=0, g=0, b=0, count=0;
+
+        for(let yOff=-1; yOff<=1; yOff++) {
+          for(let xOff=-1; xOff<=1; xOff++) {
+            const nIdx = ((j + yOff) * widthData + (i + xOff)) * 4;
+            r += copy[nIdx];
+            g += copy[nIdx + 1];
+            b += copy[nIdx + 2];
+            count++;
+          }
+        }
+
+        data[idx] = r / count;
+        data[idx + 1] = g / count;
+        data[idx + 2] = b / count;
+        data[idx + 3] = copy[idx + 3];
+      }
+    }
+
+    ctx.putImageData(imgData, left, top);
+  }
+
+  function draw(e) {
+    if (!painting || (e.touches && e.touches.length > 1)) return;
+    e.preventDefault();
+
+    const pos = getPos(e);
+    const brush = document.getElementById('brushType').value;
+    const size = parseInt(document.getElementById('brushSize').value);
+    const color = document.getElementById('colorPicker').value;
+
+    const distX = pos.x - lastX;
+    const distY = pos.y - lastY;
+    const distance = Math.sqrt(distX * distX + distY * distY);
+    const steps = Math.ceil(distance / 1);
+
+    for (let i = 0; i < steps; i++) {
+      const t = i / steps;
+      const x = lastX + distX * t;
+      const y = lastY + distY * t;
+
+      if (brush === 'normal') {
+        ctx.lineWidth = size;
+        ctx.lineCap = 'round';
+        ctx.strokeStyle = color;
+        ctx.lineTo(x, y);
+        ctx.stroke();
+        ctx.beginPath();
+        ctx.moveTo(x, y);
+      } else if (brush === 'pencil') {
+        ctx.globalAlpha = 0.3;
+        ctx.fillStyle = color;
+        ctx.beginPath();
+        ctx.arc(x, y, size / 3, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.globalAlpha = 1;
+      } else if (brush === 'spray') {
+        ctx.fillStyle = color;
+        for (let j = 0; j < 15; j++) {
+          const offsetX = Math.random() * size * 2 - size;
+          const offsetY = Math.random() * size * 2 - size;
+          if (offsetX**2 + offsetY**2 <= size**2) {
+            ctx.fillRect(x + offsetX, y + offsetY, 1, 1);
+          }
+        }
+      } else if (brush === 'texture') {
+        ctx.fillStyle = color;
+        for (let j = 0; j < 5; j++) {
+          const angle = Math.random() * 2 * Math.PI;
+          const radius = Math.random() * size;
+          const dx = Math.cos(angle) * radius;
+          const dy = Math.sin(angle) * radius;
+          ctx.beginPath();
+          ctx.arc(x + dx, y + dy, 0.8, 0, 2 * Math.PI);
+          ctx.fill();
+        }
+      } else if (brush === 'eraser') {
+        ctx.clearRect(x - size / 2, y - size / 2, size, size);
+      } else if (brush === 'vignette') {
+        blendPixels(x, y, size);
+      }
+    }
+
+    lastX = pos.x;
+    lastY = pos.y;
+  }
+
+  function clearCanvas() {
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    scale = 1;
+    originX = 0;
+    originY = 0;
+  }
+
+  // Touch gestures for pinch zoom on canvas only
+  canvas.addEventListener('touchmove', e => {
+    if (e.touches.length === 2) {
+      const newDist = getTouchDistance(e.touches);
+      scale = lastScale * (newDist / startDist);
+      ctx.setTransform(scale, 0, 0, scale, originX, originY);
+    }
+  }, {passive:false});
+
+  // Drawing events on canvas only (to avoid blocking toolbar)
+  canvas.addEventListener('mousedown', startDraw);
+  canvas.addEventListener('mouseup', endDraw);
+  canvas.addEventListener('mouseleave', endDraw);
+  canvas.addEventListener('mousemove', draw);
+
+  canvas.addEventListener('touchstart', startDraw, { passive: false });
+  canvas.addEventListener('touchend', endDraw);
+  canvas.addEventListener('touchcancel', endDraw);
+  canvas.addEventListener('touchmove', draw, { passive: false });
+
+  document.getElementById('clearBtn').addEventListener('click', () => {
+    clearCanvas();
+  });
+
+  // About modal handlers
+  const aboutBtn = document.getElementById('aboutBtn');
+  const aboutModal = document.getElementById('aboutModal');
+  const closeAbout = document.getElementById('closeAbout');
+
+  aboutBtn.addEventListener('click', () => {
+    aboutModal.style.display = 'flex';
+  });
+
+  closeAbout.addEventListener('click', () => {
+    aboutModal.style.display = 'none';
+  });
+
+  aboutModal.addEventListener('click', (e) => {
+    if (e.target === aboutModal) {
+      aboutModal.style.display = 'none';
+    }
+  });
+
+</script>
+
+</body>
+</html>
